@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import AppHeader from './components/AppHeader'
 import StateGuideCard from './components/StateGuideCard'
 import ScriptSection from './components/ScriptSection'
@@ -6,51 +7,74 @@ import RecordButton from './components/RecordButton'
 import ContactAlertButton from './components/ContactAlertButton'
 import AlertModal from './components/AlertModal'
 import OnboardingModal from './components/OnboardingModal'
-import { Shield, MapPin, AlertTriangle } from 'lucide-react'
+import AuthModal from './components/AuthModal'
+import ProfileSettings from './components/ProfileSettings'
+import ScriptGenerator from './components/ScriptGenerator'
+import { Shield, MapPin, AlertTriangle, Wand2, Settings, User, LogIn } from 'lucide-react'
+import rightsService from './services/rightsService'
 
-function App() {
+function AppContent() {
+  const { user, profile, loading } = useAuth()
   const [location, setLocation] = useState(null)
   const [isRecording, setIsRecording] = useState(false)
   const [showAlert, setShowAlert] = useState(false)
-  const [showOnboarding, setShowOnboarding] = useState(true)
-  const [user, setUser] = useState(null)
+  const [showOnboarding, setShowOnboarding] = useState(!user)
+  const [showAuth, setShowAuth] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showScriptGenerator, setShowScriptGenerator] = useState(false)
   const [incidents, setIncidents] = useState([])
-  const [selectedLanguage, setSelectedLanguage] = useState('english')
+  const [rightsData, setRightsData] = useState(null)
+  const [selectedLanguage, setSelectedLanguage] = useState(profile?.preferred_language || 'english')
 
-  // Request location permission on app load
+  // Update language when profile changes
   useEffect(() => {
-    const requestLocation = () => {
+    if (profile?.preferred_language) {
+      setSelectedLanguage(profile.preferred_language)
+    }
+  }, [profile])
+
+  // Request location permission and load rights data
+  useEffect(() => {
+    const requestLocation = async () => {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
-          (position) => {
+          async (position) => {
             const { latitude, longitude } = position.coords
-            // Convert coordinates to state (simplified for demo)
-            const stateMap = {
-              'default': 'California' // Default for demo
+            try {
+              const state = await rightsService.getStateFromCoordinates(latitude, longitude)
+              const location = {
+                state,
+                coords: { latitude, longitude }
+              }
+              setLocation(location)
+              
+              // Load rights data for the detected state
+              const rights = await rightsService.getRightsForState(state, selectedLanguage)
+              setRightsData(rights)
+            } catch (error) {
+              console.error('Error processing location:', error)
+              setLocation({ state: 'California', coords: { latitude, longitude } })
             }
-            setLocation({
-              state: stateMap.default,
-              coords: { latitude, longitude }
-            })
           },
           (error) => {
             console.warn('Location access denied:', error)
             // Fallback to default state
             setLocation({ state: 'California', coords: null })
+            rightsService.getRightsForState('California', selectedLanguage).then(setRightsData)
           }
         )
       } else {
         setLocation({ state: 'California', coords: null })
+        rightsService.getRightsForState('California', selectedLanguage).then(setRightsData)
       }
     }
 
-    if (!showOnboarding) {
+    if (!showOnboarding && !loading) {
       requestLocation()
     }
-  }, [showOnboarding])
+  }, [showOnboarding, loading, selectedLanguage])
 
-  const handleOnboardingComplete = (userData) => {
-    setUser(userData)
+  const handleOnboardingComplete = () => {
     setShowOnboarding(false)
   }
 
@@ -71,9 +95,69 @@ function App() {
     alert('Alert sent to your emergency contacts!')
   }
 
+  const handleScriptGenerated = (script) => {
+    // Handle the generated script - could save it, display it, etc.
+    console.log('Generated script:', script)
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg flex items-center justify-center">
+        <div className="text-center">
+          <Shield className="w-16 h-16 text-primary mx-auto mb-4" />
+          <p className="text-text-secondary">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-bg">
-      <AppHeader user={user} />
+      {/* Header with Auth Controls */}
+      <header className="bg-surface shadow-sm border-b">
+        <div className="max-w-screen-md mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Shield className="w-8 h-8 text-primary" />
+            <h1 className="text-xl font-semibold text-text-primary">
+              Citizen's Shield
+            </h1>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {user ? (
+              <>
+                <button
+                  onClick={() => setShowScriptGenerator(true)}
+                  className="flex items-center gap-1 px-3 py-2 text-sm text-primary hover:bg-gray-100 rounded-md transition-colors"
+                  title="AI Script Generator"
+                >
+                  <Wand2 className="w-4 h-4" />
+                  AI Scripts
+                </button>
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="flex items-center gap-1 px-3 py-2 text-sm text-text-secondary hover:bg-gray-100 rounded-md transition-colors"
+                  title="Settings"
+                >
+                  <Settings className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-md">
+                  <User className="w-4 h-4 text-text-secondary" />
+                  <span className="text-sm text-text-primary">{user.email}</span>
+                </div>
+              </>
+            ) : (
+              <button
+                onClick={() => setShowAuth(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-md text-sm font-medium hover:bg-primary/90 transition-colors"
+              >
+                <LogIn className="w-4 h-4" />
+                Sign In
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
       
       <main className="max-w-screen-md mx-auto px-4 py-6 space-y-6">
         {/* Hero Section */}
@@ -90,18 +174,45 @@ function App() {
         </div>
 
         {/* Location & State Guide */}
-        {location && (
+        {location && rightsData && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-text-secondary">
               <MapPin className="w-4 h-4" />
               <span className="text-sm">Current location: {location.state}</span>
             </div>
-            <StateGuideCard state={location.state} />
+            <StateGuideCard 
+              state={location.state} 
+              rightsData={rightsData.content}
+              language={selectedLanguage}
+            />
           </div>
         )}
 
         {/* Scripts Section */}
         <ScriptSection language={selectedLanguage} />
+
+        {/* AI Script Generator CTA */}
+        {user && (
+          <div className="bg-gradient-to-r from-primary/10 to-accent/10 rounded-lg p-4 border border-primary/20">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-text-primary mb-1">
+                  Need Custom Scripts?
+                </h3>
+                <p className="text-sm text-text-secondary">
+                  Generate AI-powered, personalized de-escalation scripts for your specific situation.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowScriptGenerator(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-md text-sm font-medium hover:bg-primary/90 transition-colors"
+              >
+                <Wand2 className="w-4 h-4" />
+                Generate
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Language Selector */}
         <div className="bg-surface rounded-lg p-4 shadow-card">
@@ -179,6 +290,28 @@ function App() {
         <OnboardingModal onComplete={handleOnboardingComplete} />
       )}
 
+      {showAuth && (
+        <AuthModal
+          isOpen={showAuth}
+          onClose={() => setShowAuth(false)}
+        />
+      )}
+
+      {showSettings && (
+        <ProfileSettings
+          isOpen={showSettings}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showScriptGenerator && (
+        <ScriptGenerator
+          isOpen={showScriptGenerator}
+          onClose={() => setShowScriptGenerator(false)}
+          onScriptGenerated={handleScriptGenerated}
+        />
+      )}
+
       {showAlert && (
         <AlertModal
           onConfirm={handleAlertSent}
@@ -187,6 +320,15 @@ function App() {
         />
       )}
     </div>
+  )
+}
+
+// Main App component with AuthProvider
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }
 

@@ -19,8 +19,8 @@ const stateRightsData = {
   }
 }
 
-function StateGuideCard({ state }) {
-  const rights = stateRightsData[state] || stateRightsData['California']
+function StateGuideCard({ state, rightsData, language = 'english' }) {
+  const rights = rightsData || stateRightsData[state] || stateRightsData['California']
 
   return (
     <div className="bg-surface rounded-lg p-6 shadow-card">
